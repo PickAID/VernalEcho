@@ -1,0 +1,8 @@
+{
+  "type": "vernalecho:wild_echo",
+  "config": {
+    "chestLinkedChance": 0.35,
+    "chestSearchRadius": 5,
+    "surfaceSearchAttempts": 4
+  }
+}

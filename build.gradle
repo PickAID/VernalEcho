@@ -134,8 +134,10 @@ neoForge {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             systemProperty templatePlatform.gameTestNamespaceProperty, template.modId
             jvmArgument '-Dmixin.env.disableRefMap=true'
-            programArgument '--mixin'
-            programArgument "${template.modId}.mixins.json"
+            if (name != "data") {
+                programArgument '--mixin'
+                programArgument "${template.modId}.mixins.json"
+            }
             logLevel = org.slf4j.event.Level.DEBUG
         }
 
@@ -164,8 +166,9 @@ neoForge {
         }
 
         data {
-            data()
+            serverData()
             gameDirectory = project.file('run/data')
+            logLevel = org.slf4j.event.Level.INFO
             programArguments.addAll '--mod', template.modId,
                 '--all',
                 '--output', file('src/generated/resources/').absolutePath,
@@ -725,6 +728,12 @@ def generateMixinConfig = tasks.register("generateMixinConfig", Copy) {
 
 sourceSets.main.resources.srcDir(generateModMetadata)
 sourceSets.main.resources.srcDir(generateMixinConfig)
+sourceSets.main.resources.srcDir("src/generated/resources")
+
+tasks.named("processResources", ProcessResources).configure {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude ".cache/**"
+}
 
 neoForge.ideSyncTask(generateModMetadata)
 neoForge.ideSyncTask(generateMixinConfig)
