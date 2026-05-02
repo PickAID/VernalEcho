@@ -1,0 +1,167 @@
+schema_version = 1
+template_version = "26.1.2-template-1.0.0"
+
+[mod]
+mod_id = "vernalecho"
+mod_name = "春日影"
+version = "0.1.0"
+version_suffix = ""
+group = "cn.mihono.vernalecho"
+authors = ["PickAID"]
+license = "MIT"
+description = "A NeoForge system of lingering player echoes formed from actions, memory, and world state."
+credits = "Designed and developed by PickAID."
+issue_tracker_url = "https://github.com/PickAID/VernalEcho/issues"
+
+[features]
+jei = false
+curios = false
+# Not available on this branch until compatible 26.1.2 artifacts are published.
+geckolib = false
+player_animator = false
+mixin_extras = true
+
+[languages]
+# Java is always enabled. Kotlin is opt-in and can be mixed with Java.
+kotlin = false
+
+[dev_packs]
+# Local-only helper packs for development runs.
+basic = false
+appleskin = false
+curios = false
+
+[overrides]
+# Only override curated versions when an enabled built-in feature needs a
+# different version than the template default.
+# jei_version = "29.5.0.26"
+# curios_version = "15.0.0-beta.2+26.1.2"
+# mixin_extras_version = "0.5.4"
+
+[repositories]
+# These common repositories are already filled in for you.
+# Most projects can leave this block alone and only add extra entries when a
+# mod or library lives somewhere else.
+# You can also use the inline-table form when you want a clearer display name
+# or a content filter for specific groups:
+# custom_repo = { url = "https://maven.example.com/releases", name = "Example", groups = ["com.example"] }
+blamejared = "https://maven.blamejared.com/"
+sponge = "https://repo.spongepowered.org/maven"
+geckolib = "https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/"
+curios = "https://maven.theillusivec4.top/"
+kosmx = "https://maven.kosmx.dev/"
+cursemaven = "https://cursemaven.com"
+architectury = "https://maven.architectury.dev"
+latvian = "https://maven.latvian.dev/releases"
+jitpack = "https://jitpack.io"
+
+[dependencies]
+# Use nested tables by Gradle-style bucket name.
+# Buckets ending in _api are for libraries you expose to downstream compile
+# consumers. deobf_* buckets are for mod dependencies that need remapping.
+# Example:
+# [dependencies.deobf_api]
+# jei_common_api = "mezz.jei:jei-26.1.2-common-api:29.5.0.26"
+# jei_neoforge_api = "mezz.jei:jei-26.1.2-neoforge-api:29.5.0.26"
+#
+# [dependencies.deobf_runtime_only]
+# jei_runtime = "mezz.jei:jei-26.1.2-neoforge:29.5.0.26"
+#
+# [dependencies.deobf_implementation]
+# mixinextras_neoforge = "io.github.llamalad7:mixinextras-neoforge:0.5.4"
+#
+# [dependencies.compile_only]
+# mixinextras_common = "io.github.llamalad7:mixinextras-common:0.5.4"
+#
+# [dependencies.annotation_processor]
+# mixinextras_common_processor = "io.github.llamalad7:mixinextras-common:0.5.4"
+#
+# Advanced native import example. Only prebuilt JNI/JNA binaries are packaged;
+# the template does not compile Rust/C/C++ sources.
+# Files go under native-libs/<library>/<platform>/<fileName>.
+# [native_libraries.physics]
+# load_name = "pickaid_physics"
+# loader = "jni"
+# platforms = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+# required = true
+#
+# [dependencies.jarjar]
+# helper = { notation = "com.example:helper-neoforge:1.0.0", range = "[1.0.0,)" }
+#
+# `jarjar` 只负责把依赖打进你的模组 jar。
+# 如果这个依赖还要暴露给下游编译，请把它放进正常依赖桶，再加 `range`：
+# [dependencies.compile_only_api]
+# helper_api = { notation = "com.example:helper-neoforge:1.0.0", range = "[1.0.0,)" }
+#
+# 多模块工程里的子项目嵌入不要写在 [dependencies]，而是写在 [embedded_projects]：
+# [embedded_projects.api]
+# core = ":core"
+# # 或者：
+# # core = { path = ":core", configuration = "namedElements" }
+#
+# [embedded_projects.implementation]
+# internal = ":internal"
+
+[metadata]
+# Optional mod metadata written into neoforge.mods.toml.
+# logo_file = "icon.png"
+# logo_blur = true
+# show_as_resource_pack = false
+# show_as_data_pack = false
+# update_json_url = ""
+# display_url = ""
+# Allowed: MATCH_VERSION, IGNORE_SERVER_VERSION, IGNORE_ALL_VERSION, NONE
+# display_test = "MATCH_VERSION"
+
+# NeoForge 26.1 supports required / optional / incompatible / discouraged
+# dependency types directly in neoforge.mods.toml.
+# required / optional / incompatible / discouraged must define version_range.
+# ordering: NONE, BEFORE, AFTER
+# side: BOTH, CLIENT, SERVER
+# String shorthand means version_range only:
+# [mod_relations.required]
+# curios = "[15.0.0-beta.2,)"
+#
+# Inline-table form also supports reason, referral_url, and upload ids:
+# [mod_relations.optional]
+# jade = { version_range = "*", ordering = "NONE", side = "BOTH", referral_url = "https://www.curseforge.com/minecraft/mc-mods/jade", modrinth = "nvQzSEkH", curseforge = "324717" }
+#
+# [mod_relations.incompatible]
+# optifine = { version_range = "*", reason = "Renderer hooks conflict", modrinth = "nCQRBEiR", curseforge = "228404" }
+#
+# [mod_relations.discouraged]
+# example_old_addon = { version_range = "*", reason = "This branch replaces it" }
+#
+# embedded must define at least one upload-platform project id.
+# [mod_relations.embedded]
+# helperlib = { modrinth = "example", curseforge = "123456" }
+
+[publish]
+# Leave blank for local-only publishing. MAVEN_URL can override this in CI.
+maven_url = "https://maven.mihono.cn/repository/vernalecho/"
+# Local machine settings should normally go in project.local.toml instead:
+# - [run].mc_user
+# - [publish].maven_user / maven_password / modrinth_token / curseforge_token
+# See project.local.toml.example.
+#
+# Temporary fallbacks are still accepted here, but prefer env vars or
+# project.local.toml and do not commit filled-in secrets.
+# CurseForge upload tokens are generated from the API Tokens page:
+# https://support.curseforge.com/support/solutions/articles/9000197321-curseforge-api
+# Direct page:
+# https://authors-old.curseforge.com/account/api-tokens
+# Modrinth PATs are generated from user settings:
+# https://docs.modrinth.com/api/
+# Settings entry:
+# https://modrinth.com/settings/account
+# maven_user = ""
+# maven_password = ""
+# modrinth_token = ""
+# curseforge_token = ""
+curseforge_project = 0
+modrinth_project = ""
+release_type = "alpha"
+
+[naming]
+archive_name = "vernalecho"
+jar_format = "{archive_name}-{mc_version}-{version}"
