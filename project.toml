@@ -162,6 +162,21 @@ curseforge_project = 0
 modrinth_project = ""
 release_type = "alpha"
 
+[publish.mods]
+# Shared release metadata used by both upload platforms unless overridden below.
+game_versions = ["26.1.2"]
+loaders = ["neoforge"]
+
+[publish.modrinth]
+# "version" publishes only the matching CHANGELOG.md section for mod.version.
+# Use "full" when a platform should receive the whole file.
+changelog_file = "CHANGELOG.md"
+changelog_section = "version"
+
+[publish.curseforge]
+changelog_file = "CHANGELOG.md"
+changelog_section = "version"
+
 [naming]
 archive_name = "vernalecho"
 jar_format = "{archive_name}-{mc_version}-{version}"
