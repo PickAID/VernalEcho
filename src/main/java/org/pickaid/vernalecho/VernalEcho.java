@@ -1,6 +1,9 @@
 package org.pickaid.vernalecho;
 
 import org.pickaid.vernalecho.echo.data.EchoAttachments;
+import org.pickaid.vernalecho.echo.item.tabs.EchoCreativeTabs;
+import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
+import org.pickaid.vernalecho.echo.item.EchoItems;
 import org.pickaid.vernalecho.echo.server.EchoActivityHandler;
 import net.minecraft.resources.Identifier;
 import net.neoforged.bus.api.IEventBus;
@@ -14,6 +17,9 @@ public final class VernalEcho {
 
     public VernalEcho(IEventBus modBus) {
         EchoAttachments.register(modBus);
+        EchoDataComponents.register(modBus);
+        EchoItems.register(modBus);
+        EchoCreativeTabs.register(modBus);
         EchoFeatures.register(modBus);
         modBus.addListener(VernalEchoDataGenerators::gatherServerData);
         EchoActivityHandler.register();

@@ -1,0 +1,15 @@
+{
+  "item.vernalecho.echo_bell": "Echo Bell",
+  "item.vernalecho.echo_bell.tooltip": "Aim at a nearby echo and hold right click to seal it. Right click the ground to release.",
+  "item.vernalecho.echo_bell.sealed": "An echo lies sealed within.",
+  "item.vernalecho.echo_bell.origin.player_activity": "Origin: Player residue",
+  "item.vernalecho.echo_bell.origin.wild": "Origin: Wild echo",
+  "item.vernalecho.echo_bell.pose.idle": "Pose: Standing",
+  "item.vernalecho.echo_bell.pose.walking": "Pose: Walking",
+  "item.vernalecho.echo_bell.pose.crouching": "Pose: Crouching",
+  "item.vernalecho.echo_bell.pose.guarding": "Pose: Guarding",
+  "item.vernalecho.echo_bell.pose.reaching": "Pose: Reaching",
+  "item.vernalecho.echo_bell.pose.crouch_reaching": "Pose: Crouching, reaching",
+  "item.vernalecho.echo_bell.pose.reading": "Pose: Reading",
+  "item.vernalecho.echo_bell.pose.fallen": "Pose: Fallen"
+}

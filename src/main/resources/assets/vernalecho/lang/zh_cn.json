@@ -1,0 +1,15 @@
+{
+  "item.vernalecho.echo_bell": "影铃",
+  "item.vernalecho.echo_bell.tooltip": "对准近处的影子长按右键以收入铃中，右键地面可再次放出。",
+  "item.vernalecho.echo_bell.sealed": "铃中封存着一缕影子。",
+  "item.vernalecho.echo_bell.origin.player_activity": "源流：玩家残响",
+  "item.vernalecho.echo_bell.origin.wild": "源流：野生回响",
+  "item.vernalecho.echo_bell.pose.idle": "姿态：伫立",
+  "item.vernalecho.echo_bell.pose.walking": "姿态：行走",
+  "item.vernalecho.echo_bell.pose.crouching": "姿态：潜行",
+  "item.vernalecho.echo_bell.pose.guarding": "姿态：戒备",
+  "item.vernalecho.echo_bell.pose.reaching": "姿态：探手",
+  "item.vernalecho.echo_bell.pose.crouch_reaching": "姿态：低伏探手",
+  "item.vernalecho.echo_bell.pose.reading": "姿态：阅读",
+  "item.vernalecho.echo_bell.pose.fallen": "姿态：倒伏"
+}

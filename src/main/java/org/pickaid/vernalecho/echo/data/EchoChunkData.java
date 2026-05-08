@@ -86,6 +86,26 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
         return this.addRecord(record, this.accumulatedWeight, this.lastTriggerGameTime);
     }
 
+    public EchoChunkData placeCapturedEcho(EchoRecord record, long gameTime) {
+        return this.addRecord(record, this.accumulatedWeight, gameTime);
+    }
+
+    public EchoChunkData removeRecord(UUID recordId) {
+        int index = -1;
+        for (int i = 0; i < this.records.size(); i++) {
+            if (this.records.get(i).id().equals(recordId)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return this;
+        }
+        List<EchoRecord> newRecords = new ArrayList<>(this.records);
+        newRecords.remove(index);
+        return new EchoChunkData(this.accumulatedWeight, this.lastTriggerGameTime, List.copyOf(newRecords));
+    }
+
     private EchoChunkData addRecord(EchoRecord record, double newWeight, long newLastTriggerGameTime) {
         List<EchoRecord> newRecords = new ArrayList<>(this.records);
         newRecords.add(record);
