@@ -9,6 +9,7 @@ import net.minecraft.util.ARGB;
 import net.minecraft.util.Util;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
@@ -43,13 +44,7 @@ public final class EchoCaptureBeamRenderer {
     public static void onRenderLevel(RenderLevelStageEvent.AfterTranslucentParticles event) {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
-        if (player == null) {
-            return;
-        }
-
-        BellTarget mainTarget = readTarget(player.getItemInHand(InteractionHand.MAIN_HAND));
-        BellTarget offTarget = readTarget(player.getItemInHand(InteractionHand.OFF_HAND));
-        if (mainTarget == null && offTarget == null) {
+        if (player == null || mc.level == null) {
             return;
         }
 
@@ -64,12 +59,17 @@ public final class EchoCaptureBeamRenderer {
         Matrix4f matrix = poseStack.last().pose();
 
         float time = (Util.getMillis() % 600000L) / 1000.0F;
+        boolean firstPerson = mc.options.getCameraType().isFirstPerson();
 
-        if (mainTarget != null) {
-            renderBeam(consumer, matrix, mainTarget.pos(), handAnchor(player, InteractionHand.MAIN_HAND, partialTick), time);
-        }
-        if (offTarget != null) {
-            renderBeam(consumer, matrix, offTarget.pos(), handAnchor(player, InteractionHand.OFF_HAND, partialTick), time);
+        for (Player renderedPlayer : mc.level.players()) {
+            renderPlayerBeams(
+                consumer,
+                matrix,
+                renderedPlayer,
+                partialTick,
+                renderedPlayer == player && firstPerson,
+                time
+            );
         }
 
         poseStack.popPose();
@@ -80,13 +80,46 @@ public final class EchoCaptureBeamRenderer {
         return stack.isEmpty() ? null : stack.get(EchoDataComponents.BELL_TARGET);
     }
 
-    private static Vec3 handAnchor(LocalPlayer player, InteractionHand hand, float partialTick) {
+    private static void renderPlayerBeams(
+        VertexConsumer consumer,
+        Matrix4f matrix,
+        Player player,
+        float partialTick,
+        boolean firstPerson,
+        float time
+    ) {
+        BellTarget mainTarget = readTarget(player.getItemInHand(InteractionHand.MAIN_HAND));
+        if (mainTarget != null) {
+            renderBeam(consumer, matrix, mainTarget.pos(), bellAnchor(player, InteractionHand.MAIN_HAND, partialTick, firstPerson), time);
+        }
+        BellTarget offTarget = readTarget(player.getItemInHand(InteractionHand.OFF_HAND));
+        if (offTarget != null) {
+            renderBeam(consumer, matrix, offTarget.pos(), bellAnchor(player, InteractionHand.OFF_HAND, partialTick, firstPerson), time);
+        }
+    }
+
+    private static Vec3 bellAnchor(Player player, InteractionHand hand, float partialTick, boolean firstPerson) {
         Vec3 eye = player.getEyePosition(partialTick);
-        Vec3 look = player.getLookAngle();
-        Vec3 right = look.cross(new Vec3(0.0D, 1.0D, 0.0D)).normalize();
+        Vec3 look = player.getViewVector(partialTick).normalize();
+        Vec3 right = look.cross(new Vec3(0.0D, 1.0D, 0.0D));
+        if (right.lengthSqr() < 1.0E-6D) {
+            double yaw = Math.toRadians(player.getYRot());
+            right = new Vec3(-Math.cos(yaw), 0.0D, -Math.sin(yaw));
+        } else {
+            right = right.normalize();
+        }
+        Vec3 up = right.cross(look).normalize();
         boolean leftHanded = (hand == InteractionHand.MAIN_HAND) == (player.getMainArm() == HumanoidArm.LEFT);
-        double sideBias = leftHanded ? -0.22D : 0.22D;
-        return eye.add(look.scale(0.55D)).add(right.scale(sideBias)).add(0.0D, -0.18D, 0.0D);
+        if (firstPerson) {
+            double sideBias = leftHanded ? -0.42D : 0.42D;
+            return eye.add(look.scale(0.58D))
+                .add(right.scale(sideBias))
+                .add(up.scale(-0.30D));
+        }
+        double sideBias = leftHanded ? -0.08D : 0.08D;
+        return eye.add(look.scale(0.66D))
+            .add(right.scale(sideBias))
+            .add(up.scale(0.22D));
     }
 
     private static void renderBeam(VertexConsumer consumer, Matrix4f matrix, Vec3 src, Vec3 dst, float time) {
