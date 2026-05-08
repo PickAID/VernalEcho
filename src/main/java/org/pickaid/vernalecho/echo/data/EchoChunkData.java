@@ -11,7 +11,12 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 
-public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, List<EchoRecord> records) {
+public record EchoChunkData(
+    double accumulatedWeight,
+    long lastTriggerGameTime,
+    List<EchoRecord> records,
+    boolean wildEchoSlotUsed
+) {
     private static final double THRESHOLD = 10.0D;
     private static final double BASE_CHANCE = 0.15D;
     private static final int MAX_RECORDS_PER_CHUNK = 24;
@@ -19,7 +24,8 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
     public static final MapCodec<EchoChunkData> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
         Codec.DOUBLE.optionalFieldOf("accumulatedWeight", 0.0D).forGetter(EchoChunkData::accumulatedWeight),
         Codec.LONG.optionalFieldOf("lastTriggerGameTime", 0L).forGetter(EchoChunkData::lastTriggerGameTime),
-        EchoRecord.CODEC.listOf().optionalFieldOf("records", List.of()).forGetter(EchoChunkData::records)
+        EchoRecord.CODEC.listOf().optionalFieldOf("records", List.of()).forGetter(EchoChunkData::records),
+        Codec.BOOL.optionalFieldOf("wildEchoSlotUsed", false).forGetter(EchoChunkData::wildEchoSlotUsed)
     ).apply(instance, EchoChunkData::new));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, EchoChunkData> STREAM_CODEC = StreamCodec.of(
@@ -28,15 +34,16 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
     );
 
     public static EchoChunkData empty() {
-        return new EchoChunkData(0.0D, 0L, List.of());
+        return new EchoChunkData(0.0D, 0L, List.of(), false);
     }
 
     public boolean isEmpty() {
-        return this.accumulatedWeight <= 0.0D && this.records.isEmpty();
+        return this.accumulatedWeight <= 0.0D && this.records.isEmpty() && !this.wildEchoSlotUsed;
     }
 
     public boolean hasWildEcho() {
-        return this.records.stream().anyMatch(record -> record.origin() == EchoOrigin.WILD);
+        return this.wildEchoSlotUsed
+            || this.records.stream().anyMatch(record -> record.origin() == EchoOrigin.WILD);
     }
 
     public EchoChunkData addResidue(
@@ -53,14 +60,14 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
     ) {
         double newWeight = Math.min(64.0D, this.accumulatedWeight + amount);
         if (newWeight < THRESHOLD) {
-            return new EchoChunkData(newWeight, this.lastTriggerGameTime, this.records);
+            return new EchoChunkData(newWeight, this.lastTriggerGameTime, this.records, this.wildEchoSlotUsed);
         }
 
         double densityFactor = 1.0D / (1.0D + this.records.size());
-        double cooldownFactor = clamp((gameTime - this.lastTriggerGameTime) / 1200.0D, 0.5D, 1.5D);
+        double cooldownFactor = clamp((gameTime - this.lastTriggerGameTime) / 1200.0D);
         double chance = BASE_CHANCE * densityFactor * cooldownFactor;
         if (random.nextDouble() >= chance) {
-            return new EchoChunkData(Math.min(newWeight, THRESHOLD * 1.8D), this.lastTriggerGameTime, this.records);
+            return new EchoChunkData(Math.min(newWeight, THRESHOLD * 1.8D), this.lastTriggerGameTime, this.records, this.wildEchoSlotUsed);
         }
 
         EchoRecord record = new EchoRecord(
@@ -76,18 +83,19 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
             pose,
             yaw
         );
-        return this.addRecord(record, newWeight * 0.3D, gameTime);
+        return this.addRecord(record, newWeight * 0.3D, gameTime, this.wildEchoSlotUsed);
     }
 
     public EchoChunkData addWildEcho(EchoRecord record) {
         if (this.hasWildEcho()) {
             return this;
         }
-        return this.addRecord(record, this.accumulatedWeight, this.lastTriggerGameTime);
+        return this.addRecord(record, this.accumulatedWeight, this.lastTriggerGameTime, true);
     }
 
     public EchoChunkData placeCapturedEcho(EchoRecord record, long gameTime) {
-        return this.addRecord(record, this.accumulatedWeight, gameTime);
+        boolean wildSlot = this.wildEchoSlotUsed || record.origin() == EchoOrigin.WILD;
+        return this.addRecord(record, this.accumulatedWeight, gameTime, wildSlot);
     }
 
     public EchoChunkData removeRecord(UUID recordId) {
@@ -103,20 +111,20 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
         }
         List<EchoRecord> newRecords = new ArrayList<>(this.records);
         newRecords.remove(index);
-        return new EchoChunkData(this.accumulatedWeight, this.lastTriggerGameTime, List.copyOf(newRecords));
+        return new EchoChunkData(this.accumulatedWeight, this.lastTriggerGameTime, List.copyOf(newRecords), this.wildEchoSlotUsed);
     }
 
-    private EchoChunkData addRecord(EchoRecord record, double newWeight, long newLastTriggerGameTime) {
+    private EchoChunkData addRecord(EchoRecord record, double newWeight, long newLastTriggerGameTime, boolean wildSlot) {
         List<EchoRecord> newRecords = new ArrayList<>(this.records);
         newRecords.add(record);
         while (newRecords.size() > MAX_RECORDS_PER_CHUNK) {
             newRecords.removeFirst();
         }
-        return new EchoChunkData(newWeight, newLastTriggerGameTime, List.copyOf(newRecords));
+        return new EchoChunkData(newWeight, newLastTriggerGameTime, List.copyOf(newRecords), wildSlot);
     }
 
-    private static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
+    private static double clamp(double value) {
+        return Math.clamp(value, 0.5, 1.5);
     }
 
     private static void write(RegistryFriendlyByteBuf buf, EchoChunkData data) {
@@ -126,6 +134,7 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
         for (EchoRecord record : data.records) {
             EchoRecord.STREAM_CODEC.encode(buf, record);
         }
+        buf.writeBoolean(data.wildEchoSlotUsed);
     }
 
     private static EchoChunkData read(RegistryFriendlyByteBuf buf) {
@@ -136,6 +145,7 @@ public record EchoChunkData(double accumulatedWeight, long lastTriggerGameTime, 
         for (int i = 0; i < recordCount; i++) {
             records.add(EchoRecord.STREAM_CODEC.decode(buf));
         }
-        return new EchoChunkData(accumulatedWeight, lastTriggerGameTime, List.copyOf(records));
+        boolean wildSlotUsed = buf.readBoolean();
+        return new EchoChunkData(accumulatedWeight, lastTriggerGameTime, List.copyOf(records), wildSlotUsed);
     }
 }

@@ -90,7 +90,7 @@ public final class EchoCaptureBeamRenderer {
     }
 
     private static void renderBeam(VertexConsumer consumer, Matrix4f matrix, Vec3 src, Vec3 dst, float time) {
-        Vec3 srcAdj = src.add(0.0D, 0.6D, 0.0D);
+        Vec3 srcAdj = src.add(0.0D, 1.0D, 0.0D);
         Vec3 axisVec = dst.subtract(srcAdj);
         double length = axisVec.length();
         if (length < 0.1D) {

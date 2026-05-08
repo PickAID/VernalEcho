@@ -5,6 +5,7 @@ import org.pickaid.vernalecho.echo.data.EchoAttachments;
 import org.pickaid.vernalecho.echo.data.EchoChunkData;
 import org.pickaid.vernalecho.echo.data.EchoPose;
 import org.pickaid.vernalecho.echo.data.GearSnapshot;
+import org.pickaid.vernalecho.echo.item.EchoBellItem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -32,8 +33,16 @@ public final class EchoActivityHandler {
         NeoForge.EVENT_BUS.addListener(EchoActivityHandler::onEnteringSection);
     }
 
+    private static boolean isHoldingEchoBell(Player player) {
+        return player.getMainHandItem().getItem() instanceof EchoBellItem
+            || player.getOffhandItem().getItem() instanceof EchoBellItem;
+    }
+
     private static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         Player player = event.getEntity();
+        if (isHoldingEchoBell(player)) {
+            return;
+        }
         if (player.level() instanceof ServerLevel level) {
             EchoPose pose = player.isCrouching() ? EchoPose.CROUCHING : EchoPose.REACHING;
             addResidue(level, player, event.getHitVec().getLocation(), 0.5D, pose, false);
@@ -42,6 +51,9 @@ public final class EchoActivityHandler {
 
     private static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
         Player player = event.getEntity();
+        if (isHoldingEchoBell(player)) {
+            return;
+        }
         if (player.level() instanceof ServerLevel level) {
             addResidue(level, player, event.getTarget().position(), 0.8D, EchoPose.REACHING, false);
         }
@@ -49,6 +61,9 @@ public final class EchoActivityHandler {
 
     private static void onAttackEntity(AttackEntityEvent event) {
         Player player = event.getEntity();
+        if (isHoldingEchoBell(player)) {
+            return;
+        }
         if (player.level() instanceof ServerLevel level) {
             addResidue(level, player, event.getTarget().position(), 1.0D, EchoPose.GUARDING, false);
         }
