@@ -13,7 +13,7 @@ import org.pickaid.vernalecho.echo.client.fx.EchoCaptureBeamRenderer;
 import org.pickaid.vernalecho.echo.client.render.EchoPoseRenderContext;
 import org.pickaid.vernalecho.echo.client.render.EchoPoseRenderers;
 import org.pickaid.vernalecho.echo.client.render.EchoPropSilhouetteRenderer;
-import org.pickaid.vernalecho.echo.network.EchoCaptureFinishedPayload;
+import org.pickaid.vernalecho.echo.network.s2c.EchoCaptureFinishedPayload;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;

@@ -6,6 +6,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.pickaid.vernalecho.VernalEcho;
 import org.pickaid.vernalecho.echo.client.network.EchoCaptureFinishedClientHandler;
+import org.pickaid.vernalecho.echo.network.s2c.EchoCaptureFinishedPayload;
 
 @EventBusSubscriber(modid = VernalEcho.MOD_ID)
 public final class EchoNetwork {

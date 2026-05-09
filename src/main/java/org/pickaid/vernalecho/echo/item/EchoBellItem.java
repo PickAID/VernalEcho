@@ -23,7 +23,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.NonNull;
 import org.pickaid.vernalecho.echo.data.EchoRecord;
 import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
-import org.pickaid.vernalecho.echo.network.EchoCaptureFinishedPayload;
+import org.pickaid.vernalecho.echo.network.s2c.EchoCaptureFinishedPayload;
 import org.pickaid.vernalecho.echo.server.EchoCaptureService;
 
 public class EchoBellItem extends Item {

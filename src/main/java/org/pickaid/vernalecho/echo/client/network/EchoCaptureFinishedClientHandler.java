@@ -1,9 +1,7 @@
 package org.pickaid.vernalecho.echo.client.network;
 
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
 import org.pickaid.vernalecho.echo.client.EchoClientRenderEvents;
-import org.pickaid.vernalecho.echo.network.EchoCaptureFinishedPayload;
+import org.pickaid.vernalecho.echo.network.s2c.EchoCaptureFinishedPayload;
 
 public final class EchoCaptureFinishedClientHandler {
 

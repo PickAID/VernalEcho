@@ -1,4 +1,4 @@
-package org.pickaid.vernalecho.echo.network;
+package org.pickaid.vernalecho.echo.network.s2c;
 
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
