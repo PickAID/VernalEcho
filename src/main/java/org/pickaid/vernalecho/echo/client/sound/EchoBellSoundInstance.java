@@ -3,6 +3,7 @@ package org.pickaid.vernalecho.echo.client.sound;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
+import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -13,10 +14,14 @@ import org.pickaid.vernalecho.echo.client.fx.EchoCaptureBeamRenderer;
 import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
 import org.pickaid.vernalecho.echo.sound.EchoSoundEvents;
 
-public final class SoundInstance extends AbstractTickableSoundInstance {
+public final class EchoBellSoundInstance extends AbstractTickableSoundInstance {
     private static final int FADE_IN_TICKS = 10;
     private static final int FADE_OUT_TICKS = 18;
     private static final float TARGET_VOLUME = 0.42F;
+    private static final float BASE_PITCH = 0.96F;
+    private static final float PITCH_CENTER = 0.95F;
+    private static final float PITCH_WOBBLE = 0.03F;
+    private static final float PITCH_WOBBLE_SPEED = 0.08F;
 
     private final UUID playerId;
     private final InteractionHand hand;
@@ -24,19 +29,20 @@ public final class SoundInstance extends AbstractTickableSoundInstance {
     private int fadeOutTicks;
     private float fadeStartVolume;
     private boolean fadingOut;
+    private boolean seenThisTick;
 
-    SoundInstance(UUID playerId, InteractionHand hand, Player player) {
+    EchoBellSoundInstance(UUID playerId, InteractionHand hand, Player player) {
         super(
             EchoSoundEvents.ECHO_BELL_CAPTURE_WHISPER.get(),
             SoundSource.PLAYERS,
-            net.minecraft.client.resources.sounds.SoundInstance.createUnseededRandom()
+            SoundInstance.createUnseededRandom()
         );
         this.playerId = playerId;
         this.hand = hand;
         this.looping = true;
         this.delay = 0;
         this.volume = 0.0F;
-        this.pitch = 0.96F;
+        this.pitch = BASE_PITCH;
         this.updatePosition(player);
     }
 
@@ -67,7 +73,7 @@ public final class SoundInstance extends AbstractTickableSoundInstance {
         this.activeTicks++;
         float fadeIn = Mth.clamp(this.activeTicks / (float) FADE_IN_TICKS, 0.0F, 1.0F);
         this.volume = TARGET_VOLUME * fadeIn;
-        this.pitch = 0.95F + 0.03F * Mth.sin(this.activeTicks * 0.08F);
+        this.pitch = PITCH_CENTER + PITCH_WOBBLE * Mth.sin(this.activeTicks * PITCH_WOBBLE_SPEED);
     }
 
     void keepActive() {
@@ -83,6 +89,18 @@ public final class SoundInstance extends AbstractTickableSoundInstance {
             this.fadeOutTicks = 0;
             this.fadeStartVolume = this.volume;
         }
+    }
+
+    void resetSeen() {
+        this.seenThisTick = false;
+    }
+
+    void markSeen() {
+        this.seenThisTick = true;
+    }
+
+    boolean wasSeen() {
+        return this.seenThisTick;
     }
 
     private Player findPlayer() {

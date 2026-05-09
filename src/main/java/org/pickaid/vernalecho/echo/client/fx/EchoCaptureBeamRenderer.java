@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.util.ARGB;
+import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
@@ -18,7 +19,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 import org.pickaid.vernalecho.VernalEcho;
-import org.pickaid.vernalecho.echo.client.sound.SoundManager;
+import org.pickaid.vernalecho.echo.client.sound.EchoBellSoundManager;
 import org.pickaid.vernalecho.echo.item.BellTarget;
 import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
 
@@ -38,7 +39,23 @@ public final class EchoCaptureBeamRenderer {
     private static final float COLOR_B = 1.00F;
     private static final float ALPHA_PEAK = 1.00F;
 
-    private EchoCaptureBeamRenderer() {
+    private static final float WAVE_SECONDARY_FREQ_RATIO = 1.13F;
+    private static final float WAVE_SECONDARY_PHASE_OFFSET = 0.4F;
+    private static final float WAVE_SECONDARY_AMP_RATIO = 0.5F;
+    private static final float LENGTH_SEGMENTS_INV = 1.0F / LENGTH_SEGMENTS;
+    private static final float RING_TWO_PI_OVER_N = (float) (Math.PI * 2.0) / RING_VERTICES;
+    private static final float TWO_PI = (float) (Math.PI * 2.0);
+    private static final float[] CENTERS = new float[(LENGTH_SEGMENTS + 1) * 3];
+    private static final float[] RADII = new float[LENGTH_SEGMENTS + 1];
+    private static final float[] RING_COS = new float[RING_VERTICES];
+    private static final float[] RING_SIN = new float[RING_VERTICES];
+
+    static {
+        for (int k = 0; k < RING_VERTICES; k++) {
+            float ang = k * RING_TWO_PI_OVER_N;
+            RING_COS[k] = (float) Math.cos(ang);
+            RING_SIN[k] = (float) Math.sin(ang);
+        }
     }
 
     @SubscribeEvent
@@ -48,7 +65,7 @@ public final class EchoCaptureBeamRenderer {
         if (player == null || mc.level == null) {
             return;
         }
-        SoundManager.update(mc);
+        EchoBellSoundManager.update(mc);
 
         float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         Vec3 cameraPos = event.getLevelRenderState().cameraRenderState.pos;
@@ -92,11 +109,13 @@ public final class EchoCaptureBeamRenderer {
     ) {
         BellTarget mainTarget = readTarget(player.getItemInHand(InteractionHand.MAIN_HAND));
         if (mainTarget != null) {
-            renderBeam(consumer, matrix, mainTarget.pos(), bellAnchor(player, InteractionHand.MAIN_HAND, partialTick, firstPerson), time);
+            Vec3 anchor = bellAnchor(player, InteractionHand.MAIN_HAND, partialTick, firstPerson);
+            renderBeam(consumer, matrix, mainTarget.pos(), anchor, time);
         }
         BellTarget offTarget = readTarget(player.getItemInHand(InteractionHand.OFF_HAND));
         if (offTarget != null) {
-            renderBeam(consumer, matrix, offTarget.pos(), bellAnchor(player, InteractionHand.OFF_HAND, partialTick, firstPerson), time);
+            Vec3 anchor = bellAnchor(player, InteractionHand.OFF_HAND, partialTick, firstPerson);
+            renderBeam(consumer, matrix, offTarget.pos(), anchor, time);
         }
     }
 
@@ -124,84 +143,105 @@ public final class EchoCaptureBeamRenderer {
             .add(up.scale(0.22D));
     }
 
+    public static Vec3 bellAnchorAtRest(Player player, InteractionHand hand, float partialTick) {
+        HumanoidArm arm = hand == InteractionHand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
+        float sideSign = arm == HumanoidArm.RIGHT ? 1.0F : -1.0F;
+        double localSide = sideSign * 0.375D;
+        double localForward = 0.10D;
+        float bodyYawDeg = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot);
+        float bodyYawRad = bodyYawDeg * Mth.DEG_TO_RAD;
+        double sinY = Mth.sin(bodyYawRad);
+        double cosY = Mth.cos(bodyYawRad);
+        double worldDx = localSide * cosY - localForward * sinY;
+        double worldDz = localSide * sinY + localForward * cosY;
+        double handHeight = player.isCrouching() ? 0.55D : 0.80D;
+        return player.getPosition(partialTick).add(worldDx, handHeight, worldDz);
+    }
+
     private static void renderBeam(VertexConsumer consumer, Matrix4f matrix, Vec3 src, Vec3 dst, float time) {
-        Vec3 srcAdj = src.add(0.0D, 1.0D, 0.0D);
-        Vec3 axisVec = dst.subtract(srcAdj);
-        double length = axisVec.length();
-        if (length < 0.1D) {
+        float srcX = (float) src.x;
+        float srcY = (float) src.y + 1.0F;
+        float srcZ = (float) src.z;
+        float axisX = (float) dst.x - srcX;
+        float axisY = (float) dst.y - srcY;
+        float axisZ = (float) dst.z - srcZ;
+        float length = (float) Math.sqrt(axisX * axisX + axisY * axisY + axisZ * axisZ);
+        if (length < 0.1F) {
             return;
         }
-        Vec3 unitAxis = axisVec.scale(1.0D / length);
-        Vec3 helper = Math.abs(unitAxis.y) > 0.95D ? new Vec3(1.0D, 0.0D, 0.0D) : new Vec3(0.0D, 1.0D, 0.0D);
-        Vec3 perpA = unitAxis.cross(helper).normalize();
-        Vec3 perpB = perpA.cross(unitAxis).normalize();
-
-        Vec3[] centers = new Vec3[LENGTH_SEGMENTS + 1];
-        float[] radii = new float[LENGTH_SEGMENTS + 1];
-
+        float invLen = 1.0F / length;
+        float ux = axisX * invLen, uy = axisY * invLen, uz = axisZ * invLen;
+        float helperX, helperY, helperZ;
+        if (Math.abs(uy) > 0.95F) {
+            helperX = 1.0F; helperY = 0.0F;
+        } else {
+            helperX = 0.0F; helperY = 1.0F;
+        }
+        helperZ = 0.0F;
+        float perpAx = uy * helperZ - uz * helperY;
+        float perpAy = uz * helperX - ux * helperZ;
+        float perpAz = ux * helperY - uy * helperX;
+        float perpANorm = (float) (1.0 / Math.sqrt(perpAx * perpAx + perpAy * perpAy + perpAz * perpAz));
+        perpAx *= perpANorm; perpAy *= perpANorm; perpAz *= perpANorm;
+        float perpBx = perpAy * uz - perpAz * uy;
+        float perpBy = perpAz * ux - perpAx * uz;
+        float perpBz = perpAx * uy - perpAy * ux;
         float waveTime = time * WAVE_TIME_SPEED;
         float pulseTime = time * PULSE_FLOW_SPEED;
-        float twoPi = (float) (Math.PI * 2.0);
-
         for (int i = 0; i <= LENGTH_SEGMENTS; i++) {
-            float t = i / (float) LENGTH_SEGMENTS;
+            float t = i * LENGTH_SEGMENTS_INV;
             float taper = (float) Math.sin(Math.PI * t);
-
-            // 中线
-            Vec3 base = srcAdj.add(unitAxis.scale(length * t));
             float wavePhase = t * WAVE_FREQ + waveTime;
             float lateral = (float) Math.sin(wavePhase) * WAVE_AMP * taper;
-            float perp = (float) Math.cos(wavePhase * 1.13F + 0.4F) * WAVE_AMP * 0.5F * taper;
-            centers[i] = base.add(perpA.scale(lateral)).add(perpB.scale(perp));
-
-            // 涌动效果
-            float pulsePhase = t * PULSE_FREQ * twoPi - pulseTime * twoPi;
+            float perp = (float) Math.cos(wavePhase * WAVE_SECONDARY_FREQ_RATIO + WAVE_SECONDARY_PHASE_OFFSET)
+                * WAVE_AMP * WAVE_SECONDARY_AMP_RATIO * taper;
+            float baseX = srcX + ux * length * t;
+            float baseY = srcY + uy * length * t;
+            float baseZ = srcZ + uz * length * t;
+            int idx = i * 3;
+            CENTERS[idx]     = baseX + perpAx * lateral + perpBx * perp;
+            CENTERS[idx + 1] = baseY + perpAy * lateral + perpBy * perp;
+            CENTERS[idx + 2] = baseZ + perpAz * lateral + perpBz * perp;
+            float pulsePhase = t * PULSE_FREQ * TWO_PI - pulseTime * TWO_PI;
             float radiusBase = TUBE_RADIUS_BASE * (0.5F + 0.5F * taper);
             float pulse = 1.0F + PULSE_AMP * (float) Math.sin(pulsePhase);
-            radii[i] = radiusBase * pulse;
+            RADII[i] = radiusBase * pulse;
         }
-
-        Vec3[] ringDirs = new Vec3[RING_VERTICES];
-        for (int k = 0; k < RING_VERTICES; k++) {
-            float ang = k * twoPi / RING_VERTICES;
-            ringDirs[k] = perpA.scale(Math.cos(ang)).add(perpB.scale(Math.sin(ang)));
-        }
-
         for (int i = 0; i < LENGTH_SEGMENTS; i++) {
-            Vec3 c0 = centers[i];
-            Vec3 c1 = centers[i + 1];
-            float r0 = radii[i];
-            float r1 = radii[i + 1];
-            float t0 = i / (float) LENGTH_SEGMENTS;
-            float t1 = (i + 1) / (float) LENGTH_SEGMENTS;
+            int idx0 = i * 3;
+            int idx1 = idx0 + 3;
+            float c0x = CENTERS[idx0],     c0y = CENTERS[idx0 + 1], c0z = CENTERS[idx0 + 2];
+            float c1x = CENTERS[idx1],     c1y = CENTERS[idx1 + 1], c1z = CENTERS[idx1 + 2];
+            float r0 = RADII[i];
+            float r1 = RADII[i + 1];
+            float t0 = i * LENGTH_SEGMENTS_INV;
+            float t1 = (i + 1) * LENGTH_SEGMENTS_INV;
             float a0 = (float) Math.sin(Math.PI * t0) * ALPHA_PEAK;
             float a1 = (float) Math.sin(Math.PI * t1) * ALPHA_PEAK;
             int color0 = ARGB.colorFromFloat(a0, COLOR_R, COLOR_G, COLOR_B);
             int color1 = ARGB.colorFromFloat(a1, COLOR_R, COLOR_G, COLOR_B);
-
             for (int k = 0; k < RING_VERTICES; k++) {
                 int kNext = (k + 1) % RING_VERTICES;
-                Vec3 dir0 = ringDirs[k];
-                Vec3 dir1 = ringDirs[kNext];
-
-                Vec3 p00 = c0.add(dir0.scale(r0));
-                Vec3 p01 = c0.add(dir1.scale(r0));
-                Vec3 p11 = c1.add(dir1.scale(r1));
-                Vec3 p10 = c1.add(dir0.scale(r1));
-
-                float u0 = k / (float) RING_VERTICES;
-                float u1 = (k + 1) / (float) RING_VERTICES;
-
-                putVertex(consumer, matrix, p00, color0, u0, t0);
-                putVertex(consumer, matrix, p01, color0, u1, t0);
-                putVertex(consumer, matrix, p11, color1, u1, t1);
-                putVertex(consumer, matrix, p10, color1, u0, t1);
+                float cosK = RING_COS[k],     sinK = RING_SIN[k];
+                float cosN = RING_COS[kNext], sinN = RING_SIN[kNext];
+                float dir0x = perpAx * cosK + perpBx * sinK;
+                float dir0y = perpAy * cosK + perpBy * sinK;
+                float dir0z = perpAz * cosK + perpBz * sinK;
+                float dir1x = perpAx * cosN + perpBx * sinN;
+                float dir1y = perpAy * cosN + perpBy * sinN;
+                float dir1z = perpAz * cosN + perpBz * sinN;
+                float u0 = k * (1.0F / RING_VERTICES);
+                float u1 = (k + 1) * (1.0F / RING_VERTICES);
+                putVertex(consumer, matrix, c0x + dir0x * r0, c0y + dir0y * r0, c0z + dir0z * r0, color0, u0, t0);
+                putVertex(consumer, matrix, c0x + dir1x * r0, c0y + dir1y * r0, c0z + dir1z * r0, color0, u1, t0);
+                putVertex(consumer, matrix, c1x + dir1x * r1, c1y + dir1y * r1, c1z + dir1z * r1, color1, u1, t1);
+                putVertex(consumer, matrix, c1x + dir0x * r1, c1y + dir0y * r1, c1z + dir0z * r1, color1, u0, t1);
             }
         }
     }
 
-    private static void putVertex(VertexConsumer consumer, Matrix4f matrix, Vec3 p, int color, float u, float v) {
-        consumer.addVertex(matrix, (float) p.x, (float) p.y, (float) p.z)
+    private static void putVertex(VertexConsumer consumer, Matrix4f matrix, float x, float y, float z, int color, float u, float v) {
+        consumer.addVertex(matrix, x, y, z)
             .setUv(u, v)
             .setColor(color);
     }

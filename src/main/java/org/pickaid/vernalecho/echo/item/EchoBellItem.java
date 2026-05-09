@@ -19,9 +19,11 @@ import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.NonNull;
 import org.pickaid.vernalecho.echo.data.EchoRecord;
 import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
+import org.pickaid.vernalecho.echo.network.EchoCaptureFinishedPayload;
 import org.pickaid.vernalecho.echo.server.EchoCaptureService;
 
 public class EchoBellItem extends Item {
@@ -90,6 +92,20 @@ public class EchoBellItem extends Item {
             return stack;
         }
         stack.set(EchoDataComponents.CAPTURED_ECHO, captured);
+        if (entity instanceof Player capturingPlayer) {
+            PacketDistributor.sendToPlayersNear(
+                serverLevel,
+                null,
+                target.pos().x, target.pos().y, target.pos().z,
+                64.0D,
+                new EchoCaptureFinishedPayload(
+                    capturingPlayer.getUUID(),
+                    capturingPlayer.getUsedItemHand(),
+                    target.pos(),
+                    captured
+                )
+            );
+        }
         serverLevel.sendParticles(
             ParticleTypes.SOUL,
             target.pos().x, target.pos().y + 0.5D, target.pos().z,

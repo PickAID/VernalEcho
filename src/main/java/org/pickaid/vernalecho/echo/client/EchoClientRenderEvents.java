@@ -13,8 +13,7 @@ import org.pickaid.vernalecho.echo.client.fx.EchoCaptureBeamRenderer;
 import org.pickaid.vernalecho.echo.client.render.EchoPoseRenderContext;
 import org.pickaid.vernalecho.echo.client.render.EchoPoseRenderers;
 import org.pickaid.vernalecho.echo.client.render.EchoPropSilhouetteRenderer;
-import org.pickaid.vernalecho.echo.item.BellTarget;
-import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
+import org.pickaid.vernalecho.echo.network.EchoCaptureFinishedPayload;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
@@ -33,9 +32,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
@@ -54,13 +51,37 @@ public final class EchoClientRenderEvents {
     );
     private static final int FULL_BRIGHT = 15728880;
     private static final double RENDER_DISTANCE_SQR = 48.0D * 48.0D;
+
     private static final int CAPTURE_FINISH_ANIMATION_TICKS = 18;
-    private static final Map<CaptureHandKey, ActiveCaptureState> ACTIVE_CAPTURE_TARGETS = new HashMap<>();
-    private static final Map<CaptureHandKey, ActiveCaptureState> CURRENT_CAPTURE_TARGETS = new HashMap<>();
-    private static final Map<UUID, EchoRecord> VISIBLE_ECHOES = new HashMap<>();
+    private static final float FINISH_SHRINK_END = 0.45F;
+    private static final float FINISH_FLY_START = 0.28F;
+    private static final float FINISH_FLY_DURATION = 1.0F - FINISH_FLY_START;
+    private static final float FINISH_SCALE_AT_SHRINK_END = 0.34F;
+    private static final float FINISH_SCALE_AT_FLY_END = 0.58F;
+    private static final float FINISH_ALPHA_FALLOFF = 0.90F;
+    private static final double FINISH_FLY_ARC_HEIGHT = 0.22D;
+
     private static final Map<UUID, CaptureFinishAnimation> FINISH_ANIMATIONS = new HashMap<>();
 
     private EchoClientRenderEvents() {
+    }
+
+    public static void onCaptureFinished(EchoCaptureFinishedPayload payload) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            return;
+        }
+        long startGameTime = mc.level.getGameTime();
+        FINISH_ANIMATIONS.put(
+            payload.record().id(),
+            new CaptureFinishAnimation(
+                payload.playerId(),
+                payload.hand(),
+                payload.record(),
+                payload.sourcePos(),
+                startGameTime
+            )
+        );
     }
 
     @SubscribeEvent
@@ -71,7 +92,6 @@ public final class EchoClientRenderEvents {
         if (level == null || player == null) {
             return;
         }
-
         PoseStack poseStack = event.getPoseStack();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
         Vec3 cameraPos = event.getLevelRenderState().cameraRenderState.pos;
@@ -81,50 +101,33 @@ public final class EchoClientRenderEvents {
         float partialTick = minecraft.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         boolean firstPerson = minecraft.options.getCameraType().isFirstPerson();
         int rendered = 0;
-
-        VISIBLE_ECHOES.clear();
         for (int chunkX = centerChunkX - 3; chunkX <= centerChunkX + 3 && rendered < 32; chunkX++) {
             for (int chunkZ = centerChunkZ - 3; chunkZ <= centerChunkZ + 3 && rendered < 32; chunkZ++) {
                 ChunkAccess chunk = level.getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
                 if (chunk == null) {
                     continue;
                 }
-
                 EchoChunkData data = chunk.getExistingDataOrNull(EchoAttachments.ECHO_CHUNK);
                 if (data == null) {
                     continue;
                 }
-
                 for (EchoRecord record : data.records()) {
                     if (record.pos().distanceToSqr(player.position()) <= RENDER_DISTANCE_SQR) {
-                        VISIBLE_ECHOES.put(record.id(), record);
-                        renderEcho(record, poseStack, bufferSource, cameraPos, gameTime);
-                        rendered++;
-                    }
-                    if (rendered >= 32) {
-                        break;
+                        renderEcho(record, poseStack, bufferSource, cameraPos, gameTime, record.pos(), 1.0F, 1.0F);
+                        if (++rendered >= 32) {
+                            break;
+                        }
                     }
                 }
             }
         }
 
         double renderTime = gameTime + partialTick;
-        updateCaptureFinishAnimations(level, player, partialTick, firstPerson, renderTime);
-        rendered += renderCaptureFinishAnimations(poseStack, bufferSource, cameraPos, gameTime, renderTime);
+        rendered += renderCaptureFinishAnimations(level, player, poseStack, bufferSource, cameraPos, gameTime, partialTick, firstPerson, renderTime);
 
         if (rendered > 0) {
             bufferSource.endBatch(ECHO_RENDER_TYPE);
         }
-    }
-
-    private static void renderEcho(
-        EchoRecord record,
-        PoseStack poseStack,
-        MultiBufferSource bufferSource,
-        Vec3 cameraPos,
-        long gameTime
-    ) {
-        renderEcho(record, poseStack, bufferSource, cameraPos, gameTime, record.pos(), 1.0F, 1.0F);
     }
 
     private static void renderEcho(
@@ -166,76 +169,20 @@ public final class EchoClientRenderEvents {
         poseStack.popPose();
     }
 
-    private static void updateCaptureFinishAnimations(
+    private static int renderCaptureFinishAnimations(
         ClientLevel level,
         LocalPlayer localPlayer,
-        float partialTick,
-        boolean firstPerson,
-        double renderTime
-    ) {
-        CURRENT_CAPTURE_TARGETS.clear();
-        for (Player player : level.players()) {
-            updateCaptureHand(player, InteractionHand.MAIN_HAND, localPlayer, partialTick, firstPerson, renderTime);
-            updateCaptureHand(player, InteractionHand.OFF_HAND, localPlayer, partialTick, firstPerson, renderTime);
-        }
-        ACTIVE_CAPTURE_TARGETS.clear();
-        ACTIVE_CAPTURE_TARGETS.putAll(CURRENT_CAPTURE_TARGETS);
-    }
-
-    private static void updateCaptureHand(
-        Player player,
-        InteractionHand hand,
-        LocalPlayer localPlayer,
-        float partialTick,
-        boolean firstPerson,
-        double renderTime
-    ) {
-        ItemStack stack = player.getItemInHand(hand);
-        BellTarget currentTarget = stack.get(EchoDataComponents.BELL_TARGET);
-        CaptureHandKey key = new CaptureHandKey(player.getUUID(), hand);
-        boolean useFirstPersonAnchor = player == localPlayer && firstPerson;
-        if (currentTarget != null) {
-            Vec3 anchor = useFirstPersonAnchor
-                ? EchoCaptureBeamRenderer.bellAnchor(player, hand, partialTick, true)
-                : restingBellAnchor(player, hand, partialTick);
-            CURRENT_CAPTURE_TARGETS.put(key, new ActiveCaptureState(currentTarget, anchor));
-            return;
-        }
-
-        ActiveCaptureState previousState = ACTIVE_CAPTURE_TARGETS.get(key);
-        if (previousState == null) {
-            return;
-        }
-        EchoRecord captured = stack.get(EchoDataComponents.CAPTURED_ECHO);
-        if (captured == null || !captured.id().equals(previousState.target().recordId()) || FINISH_ANIMATIONS.containsKey(captured.id())) {
-            return;
-        }
-
-        EchoRecord record = VISIBLE_ECHOES.getOrDefault(captured.id(), captured);
-        FINISH_ANIMATIONS.put(record.id(), new CaptureFinishAnimation(record, record.pos(), previousState.anchor(), renderTime));
-    }
-
-    private static Vec3 restingBellAnchor(Player player, InteractionHand hand, float partialTick) {
-        HumanoidArm arm = hand == InteractionHand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
-        double side = arm == HumanoidArm.RIGHT ? -0.30D : 0.30D;
-        float bodyRot = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot) * ((float)Math.PI / 180.0F);
-        double sin = Mth.sin(bodyRot);
-        double cos = Mth.cos(bodyRot);
-        double yOff = player.getBoundingBox().getYsize() - 1.22D + (player.isCrouching() ? -0.12D : 0.0D);
-        return player.getPosition(partialTick).add(
-            side * cos - 0.10D * sin,
-            yOff,
-            side * sin + 0.10D * cos
-        );
-    }
-
-    private static int renderCaptureFinishAnimations(
         PoseStack poseStack,
         MultiBufferSource bufferSource,
         Vec3 cameraPos,
         long gameTime,
+        float partialTick,
+        boolean firstPerson,
         double renderTime
     ) {
+        if (FINISH_ANIMATIONS.isEmpty()) {
+            return 0;
+        }
         int rendered = 0;
         Iterator<CaptureFinishAnimation> iterator = FINISH_ANIMATIONS.values().iterator();
         while (iterator.hasNext()) {
@@ -246,14 +193,25 @@ public final class EchoClientRenderEvents {
                 continue;
             }
 
-            float shrinkProgress = Mth.clamp(age / 0.45F, 0.0F, 1.0F);
-            float flyProgress = Mth.clamp((age - 0.28F) / 0.72F, 0.0F, 1.0F);
+            Player capturer = level.getPlayerByUUID(animation.playerId());
+            if (capturer == null) {
+                iterator.remove();
+                continue;
+            }
+            boolean useFirstPersonAnchor = capturer == localPlayer && firstPerson;
+            Vec3 destination = useFirstPersonAnchor
+                ? EchoCaptureBeamRenderer.bellAnchor(capturer, animation.hand(), partialTick, true)
+                : EchoCaptureBeamRenderer.bellAnchorAtRest(capturer, animation.hand(), partialTick);
+
+            float shrinkProgress = Mth.clamp(age / FINISH_SHRINK_END, 0.0F, 1.0F);
+            float flyProgress = Mth.clamp((age - FINISH_FLY_START) / FINISH_FLY_DURATION, 0.0F, 1.0F);
             float easedFly = flyProgress * flyProgress * (3.0F - 2.0F * flyProgress);
-            float scale = Mth.lerp(shrinkProgress, 1.0F, 0.34F) * Mth.lerp(flyProgress, 1.0F, 0.58F);
-            float alpha = 1.0F - 0.90F * flyProgress;
-            Vec3 pos = animation.source().lerp(animation.destination(), easedFly);
+            float scale = Mth.lerp(shrinkProgress, 1.0F, FINISH_SCALE_AT_SHRINK_END)
+                * Mth.lerp(flyProgress, 1.0F, FINISH_SCALE_AT_FLY_END);
+            float alpha = 1.0F - FINISH_ALPHA_FALLOFF * flyProgress;
+            Vec3 pos = animation.source().lerp(destination, easedFly);
             if (flyProgress > 0.0F) {
-                double arc = Math.sin(Math.PI * flyProgress) * 0.22D;
+                double arc = Math.sin(Math.PI * flyProgress) * FINISH_FLY_ARC_HEIGHT;
                 pos = pos.add(0.0D, arc, 0.0D);
             }
             renderEcho(animation.record(), poseStack, bufferSource, cameraPos, gameTime, pos, scale, alpha);
@@ -272,16 +230,11 @@ public final class EchoClientRenderEvents {
         MODEL.rightPants.visible = false;
     }
 
-    private record CaptureHandKey(UUID playerId, InteractionHand hand) {
-    }
-
-    private record ActiveCaptureState(BellTarget target, Vec3 anchor) {
-    }
-
     private record CaptureFinishAnimation(
+        UUID playerId,
+        InteractionHand hand,
         EchoRecord record,
         Vec3 source,
-        Vec3 destination,
         double startTime
     ) {
     }
