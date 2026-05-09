@@ -1,0 +1,10 @@
+{
+  "item.echo_bell.capture_whisper": {
+    "sounds": [
+      {
+        "name": "vernalecho:item/echo_bell/ghost_whisper",
+        "stream": false
+      }
+    ]
+  }
+}

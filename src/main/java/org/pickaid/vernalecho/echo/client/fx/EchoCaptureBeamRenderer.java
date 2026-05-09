@@ -18,6 +18,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 import org.pickaid.vernalecho.VernalEcho;
+import org.pickaid.vernalecho.echo.client.sound.SoundManager;
 import org.pickaid.vernalecho.echo.item.BellTarget;
 import org.pickaid.vernalecho.echo.item.datacomponents.EchoDataComponents;
 
@@ -47,6 +48,7 @@ public final class EchoCaptureBeamRenderer {
         if (player == null || mc.level == null) {
             return;
         }
+        SoundManager.update(mc);
 
         float partialTick = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         Vec3 cameraPos = event.getLevelRenderState().cameraRenderState.pos;
@@ -98,7 +100,7 @@ public final class EchoCaptureBeamRenderer {
         }
     }
 
-    private static Vec3 bellAnchor(Player player, InteractionHand hand, float partialTick, boolean firstPerson) {
+    public static Vec3 bellAnchor(Player player, InteractionHand hand, float partialTick, boolean firstPerson) {
         Vec3 eye = player.getEyePosition(partialTick);
         Vec3 look = player.getViewVector(partialTick).normalize();
         Vec3 right = look.cross(new Vec3(0.0D, 1.0D, 0.0D));
