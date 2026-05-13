@@ -1,262 +1,442 @@
-# Deisgn Documents
+# Vernal Echo 设计文档
 
-## Current Build Target
+## 当前构建目标
 
-- Minecraft / NeoForge line: `26.1.2`
-- Resolved NeoForge artifact: `net.neoforged:neoforge:26.1.2.30-beta`
-- Loader: NeoForge
-- Java toolchain: JDK `25`
-- Verified Java bytecode: class major version `69`
-- Primary config: `project.toml`
-- Mod id: `vernalecho`
-- Package root: `org.pickaid.vernalecho`
+- Minecraft / NeoForge 线：`26.1.2`
+- 已解析 NeoForge artifact：`net.neoforged:neoforge:26.1.2.30-beta`
+- Loader：NeoForge
+- Java toolchain：JDK `25`
+- 已验证字节码：class major version `69`
+- 主配置文件：`project.toml`
+- Mod id：`vernalecho`
+- 包根路径：`org.pickaid.vernalecho`
 
-The Gradle daemon may still print a Java 17 runtime if Gradle itself was launched with Java 17. This project compiles through the configured Java 25 toolchain from `gradle/template-defaults.toml`.
+Gradle 自身仍可能用 Java 17 启动 daemon。项目编译使用 `gradle/template-defaults.toml` 配置的 Java 25 toolchain。
 
-## Source Basis
+## 设计基准
 
-This design is based on the sources Gradle resolves for this repository, not on older MCP or 1.21.1 assumptions.
+本设计基于当前 Gradle 解析到的 `26.1.2` 源码和工作区源码。代码与设计都以 `org.pickaid.vernalecho` 为唯一包根路径，不沿用旧版包名或 1.21.1 假设。
 
-Checked local artifacts:
+已确认的本地源码基准：
 
-- `build/moddev/artifacts/minecraft-patched-26.1.2.30-beta-sources.jar`
-- `neoforge-26.1.2.30-beta-sources.jar`
+- patched Minecraft source：`build/moddev/artifacts/minecraft-patched-26.1.2.30-beta-sources.jar`
+- NeoForge source：`neoforge-26.1.2.30-beta-sources.jar`
+- Curios：`top.theillusivec4.curios:curios-neoforge:15.0.0-beta.2+26.1.2`
 
-Important `26.1.2` API facts found in those sources:
+重要 API 事实：
 
-- Minecraft resource ids use `net.minecraft.resources.Identifier`.
-- `SavedData` no longer exposes the older NBT `save(CompoundTag, HolderLookup.Provider)` override.
-- Persistent `SavedData` is loaded through `SavedDataType<T>` and a `Codec<T>`.
-- `SavedDataStorage#computeIfAbsent` takes a `SavedDataType<T>`.
-- Chunk-local custom data should use NeoForge data attachments.
-- `ChunkDataEvent` uses `SerializableChunkData`.
-- `ChunkDataEvent.Load` is fired on the main server thread, and it is safe to interact with attachments on the provided chunk.
-- `ChunkDataEvent.Save` is also on the main server thread, but runs after chunk serialization; attachment changes made there are not included in that save.
-- `AttachmentType<T>` must be registered to `NeoForgeRegistries.Keys#ATTACHMENT_TYPES`.
-- After mutating an attachment on `ChunkAccess`, call `ChunkAccess#markUnsaved`.
-- `IAttachmentSerializer<T>` uses `ValueInput` and `ValueOutput`; do not write new code against raw NBT serializer signatures.
+- Minecraft resource id 使用 `net.minecraft.resources.Identifier`。
+- 区块本地数据优先使用 NeoForge data attachment。
+- `AttachmentType<T>` 注册到 `NeoForgeRegistries.Keys#ATTACHMENT_TYPES`。
+- 修改 `ChunkAccess` attachment 后调用 `ChunkAccess#markUnsaved`。
+- 持久化数据应优先用 `Codec`，不要写新旧版裸 NBT serializer 假设。
 
-## Vision
+## Teacon 特供版本目标
 
-Vernal Echo makes the world remember player activity without filling it with always-ticking entities. Movement, combat, deaths, interactions, and multiplayer presence leave low-cost records in nearby chunks. Those records slowly mature into echoes that can be collected or awakened later.
+Teacon 特供版本是一条“封印自然生态，开放人工唤魂”的展示线。它暂时搁置自然生成，把核心体验集中到 `SoulWorkBlock`、可配置 Echo 蓝图、假人式 Echo 实体、皮肤/Profile 基础设施、物品 tooltip 和 Curios 扩展准备上。
 
-The core loop is:
+玩家看到的体验应当是：
 
 ```text
-Player Activity -> Weight Accumulation -> Echo Generation -> Formation -> Collection -> Summoning
+SoulWorkBlock 保存 Echo 蓝图
+-> 玩家配置身份、皮肤、静态预览、装备、物品库和属性轮廓
+-> 玩家无限收取灵魂
+-> Bell、tooltip、SoulWork 预览和 Echo 实体使用同一套身份与外观语义
 ```
 
-## Design Status
+Teacon 中，Echo 不应因为世界生成、玩家跨 chunk、旧区块回填或活动积累而自然出现。
 
-This README is an implementation design draft, not a claim that the gameplay systems already exist. The repository currently starts with a buildable NeoForge template, an entry class, metadata templates, and a placeholder mixin. The next work should replace the placeholder with the data, event, render, and summon systems described below.
+## 自然生成封印
 
-## System Architecture
+当前工程中 Wild Echo 已有 worldgen 和 chunk-entry 回填路径。Teacon 版本必须把这些路径全部 gate 掉，使它们在游戏内不生效。
 
-### 1. Echo Data Layer
+需要封印的入口：
 
-Echoes begin as data, not entities.
+- `VernalEcho.java` 中的 `EchoFeatures.register(modBus)`。
+- `VernalEchoDataGenerators` / `VernalEchoWorldgen` 中的 Wild Echo 数据生成。
+- `EchoActivityHandler` 中的 `EntityEvent.EnteringSection` 回填入口。
+- `EchoNaturalSpawner` 中 feature placement 和旧区块 backfill 调用。
+- 已生成的 Wild Echo biome modifier、configured feature 和 placed feature JSON。
 
-Recommended storage split for NeoForge `26.1.2`:
+验收标准：
 
-- Chunk attachment: primary storage for dormant/forming echo records in that chunk.
-- `EchoWorldSavedData`: optional per-dimension indexes, cooldown summaries, and coarse density statistics.
-- `EchoRecord`: one latent echo payload.
-- `GearSnapshot`: minimal copied equipment state used later when a player echo is awakened.
-- `EchoAffinity`: player/wild/random weighting used to decide the summoned echo type.
+- `runData` 后不输出 Wild Echo worldgen JSON。
+- 新世界不会自然生成 Wild Echo。
+- 玩家跨 chunk 不触发 Echo 回填。
+- 旧世界不会因为加载或移动补出 Echo。
 
-Chunk attachments should be the default for records because the data is chunk-local. `SavedData` should not become a giant global map of every echo unless a global index is genuinely needed.
+## SoulWorkBlock：唤魂工坊
 
-Expected dormant record shape:
+`SoulWorkBlock` 是 Teacon 的主展示方块。它必须是 `BlockEntity`，不是无状态右键方块。
 
-```json
-{
-    "id": "uuid",
-    "playerUUID": "uuid",
-    "pos": [0.0, 64.0, 0.0],
-    "spawnTime": 0,
-    "weight": 0.0,
-    "gearSnapshot": {},
-    "affinity": {
-        "playerEcho": 0.7,
-        "wildEcho": 0.2,
-        "randomEcho": 0.1
-    },
-    "boosted": false
-}
-```
+幻想语义：
 
-Attachment registration should follow this shape:
+- 方块像被春日影浸染的魂匣，内部封着一具 Echo 蓝图。
+- 青蓝魂雾、半透明刻痕和短暂人形预览构成主要反馈。
+- 它不是机器，不消耗能量；它是展会版本中的仪式容器和调试入口。
 
-```java
-private static final DeferredRegister<AttachmentType<?>> ATTACHMENTS =
-    DeferredRegister.create(NeoForgeRegistries.Keys.ATTACHMENT_TYPES, VernalEcho.MOD_ID);
+工程职责：
 
-public static final DeferredHolder<AttachmentType<?>, AttachmentType<EchoChunkData>> ECHO_CHUNK =
-    ATTACHMENTS.register("echo_chunk", () -> AttachmentType
-        .builder(EchoChunkData::empty)
-        .serialize(EchoChunkData.CODEC)
-        .build());
-```
+- `SoulWorkBlock`：方块交互入口。
+- `SoulWorkBlockEntity`：保存 Echo 蓝图、产出规则、锁定状态和同步状态。
+- `SoulWorkBlueprint`：可序列化的 Echo 配置。
+- `SoulWorkMenu` / `SoulWorkScreen`：服务端容器和客户端配置界面。
+- `SoulWorkPreviewRenderer`：复用静态 Echo 预览和 prop 渲染逻辑。
 
-Chunk mutation should set the new attachment value and mark the chunk unsaved:
-
-```java
-EchoChunkData current = chunk.getData(EchoAttachments.ECHO_CHUNK);
-chunk.setData(EchoAttachments.ECHO_CHUNK, current.addWeight(amount));
-chunk.markUnsaved();
-```
-
-If a global index is added, use `SavedDataType` and a codec:
-
-```java
-public static final SavedDataType<EchoWorldData> TYPE = new SavedDataType<>(
-    VernalEcho.id("echo_world"),
-    EchoWorldData::new,
-    EchoWorldData.CODEC
-);
-
-EchoWorldData data = level.getDataStorage().computeIfAbsent(EchoWorldData.TYPE);
-data.setDirty();
-```
-
-### 2. Activity Capture
-
-Activity should be event-driven. Avoid a global player tick accumulator.
-
-Initial hook points verified in the `26.1.2.30-beta` sources:
-
-- `PlayerInteractEvent.RightClickBlock`: low-weight residue around block interaction.
-- `PlayerInteractEvent.EntityInteract`: low or medium residue around entity interaction.
-- `LivingDeathEvent`: high-weight residue near player death or combat death.
-- `ChunkDataEvent.Load`: safe place to inspect already-loaded chunk attachments if needed.
-- `ChunkDataEvent.Save`: observation only; do not mutate data expecting it to persist in that same save.
-
-All of these game events are fired on `NeoForge.EVENT_BUS`. Registration of attachment types belongs on the mod event bus.
-
-### 3. Weight Accumulation
-
-Each activity writes weighted residue into the current chunk and, when useful, a small bounded neighborhood.
-
-Suggested first weights:
-
-| Activity                    |                Weight |
-| --------------------------- | --------------------: |
-| Long movement through chunk |                 `0.2` |
-| Block interaction           |                 `0.5` |
-| Entity interaction          |                 `0.8` |
-| Combat damage nearby        |                 `1.0` |
-| Player death                |                 `4.0` |
-| Multiplayer overlap         | `+25%` local modifier |
-
-Accumulation is spatially local and should not scan the whole world. Use the current chunk, optional adjacent chunks, and bounded density checks.
-
-### 4. Threshold And Dice Roll
-
-When chunk-local residue reaches the threshold, it does not spawn immediately. It rolls.
+建议包结构：
 
 ```text
-threshold = 10
-chance = baseChance * densityFactor * cooldownFactor
-baseChance = 0.15
-densityFactor = 1 / (1 + nearbyEchoCount)
-cooldownFactor = clamp(timeSinceLastTrigger / 60s, 0.5, 1.5)
+org.pickaid.vernalecho.echo.soulwork
+org.pickaid.vernalecho.echo.client.soulwork
 ```
 
-On success:
+## Echo 蓝图数据
 
-- Create a dormant `EchoRecord` in the chunk attachment.
-- Play subtle local audio feedback within 8 blocks.
-- Reduce residue instead of clearing all of it:
+`SoulWorkBlockEntity` 保存一份 `SoulWorkBlueprint`。蓝图是未激活 Echo 的低成本配置来源，不是完整实体快照，也不是玩家背包的复制容器。
+
+建议字段：
 
 ```text
-accumulatedWeight *= 0.3
+SoulWorkBlueprint
+- schemaVersion
+- echoId
+- displayName
+- profile
+- skin
+- appearance
+- previewPose
+- maturity
+- activeLoadout
+- itemLibrary
+- inventoryMatchRules
+- attributeProfile
+- attributeOverrides
+- outputRules
+- locked
 ```
 
-### 5. Formation
+身份字段：
 
-Formation should use lazy evaluation.
+- `echoId`：允许手动设置；为空时生成稳定 UUID 字符串。
+- `displayName`：用于 UI、tooltip 和实体名牌。
+- `profileName` / `profileUuid`：用于离线玩家信息和皮肤解析。
+- `previewPose`：只用于 tooltip、SoulWork 预览和静态残影，不用于会移动的 Echo 实体。
 
-Do not tick every dormant echo. Compute progress only when a player enters range, opens an echo UI, collects an echo, or the chunk data is otherwise queried.
+成熟规则：
+
+- Teacon 中由 `SoulWorkBlock` 生成或展示的 Echo 默认成熟。
+- 未来 Wild Echo 的自然成熟逻辑保留，但 Teacon 不调用自然生成路径。
+
+## 皮肤与离线玩家信息
+
+皮肤配置应存为 descriptor，而不是把下载和渲染绑在一起。
+
+支持模式：
+
+- `DEFAULT`：使用默认青蓝 Echo 轮廓。
+- `PROFILE`：通过 profile name/uuid 走 Minecraft 原生 profile 与 skin manager 路线。
+- `URL`：保存 URL descriptor，客户端异步缓存解析；渲染线程不下载。
+- `RANDOM_POOL`：从本地预设 profile/skin 池中选择。
+- `CUSTOM_SKIN_LOADER_COMPAT`：保持原生 profile/skin manager 路线，让 CustomSkinLoader 有机会接管。
+
+离线玩家规则：
+
+- 显式 UUID 优先。
+- 只有名称时，允许离线 UUID fallback。
+- 解析失败时回退到默认 Echo 轮廓。
+- Echo 不应伪装成在线玩家加入 player list，除非未来单独实现完整假玩家功能。
+
+## 装备、道具和 Attribute
+
+装备配置是 BE 的一等能力。
+
+第一版槽位：
+
+- 主手
+- 副手
+- 头盔
+- 胸甲
+- 护腿
+- 靴子
+- 预留 Curios 槽位
+
+装备用途：
+
+- 参与实体 Attribute 应用和 AI 决策。
+- 影响 tooltip、SoulWork 预览和实体 renderer 的道具影子。
+- 不作为掉落物复制给玩家。
+
+## 蓝图物品边界
+
+Echo 蓝图必须保存武器和护甲，但不应保存完整玩家背包。
+
+保存范围：
+
+- `activeLoadout`：当前主手、副手、四件护甲和预留 Curios 槽。
+- `itemLibrary`：固定可配置的允许物品库，用于定义 Echo 可以尝试使用哪些 `ItemStack` 模板和匹配规则。核心不内置非原版物品分类。
+- `loadoutPresets`：如果继续保留旧名，它只是 `itemLibrary` 的兼容别名，不表示一组真实库存。
+- `inventoryMatchRules`：从召唤者背包中匹配物品库条目的规则。
+- `propOverrides`：只影响渲染的道具覆盖项。
+
+不保存范围：
+
+- 玩家完整背包。
+- 末影箱、饰品模组的完整库存、背包类物品内部库存。
+- 可被玩家从蓝图中取回的真实物品库存。
+
+边界理由：
+
+- Echo 需要主副手和护甲来应用 Attribute、展示道具和渲染装备。
+- 切换物品不需要完整背包；固定物品库加召唤者背包匹配足够支持 Teacon 展示和未来 AI。
+- 完整背包会把蓝图变成物品复制容器，也会扩大同步和存档体积。
+
+安全规则：
+
+- 蓝图中的 `ItemStack` 是模板，不是库存。
+- Echo 只有在召唤者背包中找到匹配物品时，才可以临时使用对应模板。
+- Echo 使用的是临时视图或副本，死亡、移除、导出、收魂和收回都不掉落这些物品。
+- SoulWork UI 可以从玩家当前装备复制模板，但不能从蓝图把模板取回玩家背包。
+- 若未来需要“记忆背包”，应设计为独立的 `EchoMemoryInventory`，默认最多 9 个非提取模板槽，并且不等同于玩家背包。
+
+## Attribute 配置
+
+`SoulWorkBlueprint` 不维护 `soulPower`、`equipmentScore` 这类自定义强度字段，也不在每个蓝图里长期保存完整 Attribute 实例快照。蓝图保存轻量的 Attribute profile 引用和稀疏 overrides；只有召唤实体或打开需要完整预览的界面时才解析成运行时 attribute instance。
+
+推荐结构：
 
 ```text
-progress = clamp((currentGameTime - spawnTime) * baseSpeed * environmentFactor, 0, 1)
+SoulWorkAttributeProfile
+- id: Identifier
+- parent: Optional<Identifier>
+
+SoulWorkAttributeOverrides
+- entries: List<SparseAttributeOverride>
+
+SparseAttributeOverride
+- attribute: ResourceKey 或 Identifier
+- baseValue: double
+- modifiers: List<SparseAttributeModifier>
+
+SparseAttributeModifier
+- id: Identifier
+- amount: double
+- operation: ADD_VALUE | ADD_MULTIPLIED_BASE | ADD_MULTIPLIED_TOTAL
 ```
 
-Formation phases:
+规则：
 
-- `Dormant`: only data exists.
-- `Forming`: client-visible effect, no AI, no collision, no entity tick.
-- `Collectable`: interaction target or server-side commandable record.
-- `Awakened`: temporary combat/support entity.
+- 支持 vanilla 和其他模组注册的 Attribute。
+- 默认属性放在可复用 profile 里；单个 Echo 只保存和默认不同的 sparse overrides。
+- 读不到的 Attribute 不崩溃，保留 override 的 id，并在 tooltip/UI 中标记为缺失。
+- 装备不再通过 `equipmentScore` 合并成一个数值；需要装备影响时，让装备本身或 Echo item-use 逻辑提供 Attribute modifier。
+- tooltip 可以摘要显示生命、攻击、护甲、速度等常见 Attribute，但存档层避免为每个 Echo 存重复列表。
+- 大量 Echo 场景中，未激活的 Echo 只保存 profile id、少量 overrides 和必要 runtime state。
+- 运行时实体可以持有完整 Attribute instance；这个完整列表来自解析结果，不直接塞回蓝图长期保存。
 
-### 6. Rendering
+## 无限收魂规则
 
-The forming phase should not be a permanent entity.
+`SoulWorkBlock` 可以无限产出灵魂。收取行为不消耗蓝图，不消耗装备，也不让方块枯竭。
 
-First implementation target:
-
-- client-only particle and translucent silhouette effect near the record position
-- render only when player is close enough
-- no pathfinding, collision, or server tick
-- shadow silhouette detail: use a skinless player-shaped model instead of copied player skins; render it as a blue translucent echo with pose renderers for reaching, crouch-reaching, guarding, crouching, walking, reading, fallen, and future extension poses
-- render held prop silhouettes with the same echo treatment; current built-ins support generic items, guarding shields, and book-like props for later casting/book poses
-- dormant records should sync only as compact chunk attachment data; the client turns those records into temporary visual silhouettes locally
-
-If a later version needs a visible interaction target, add a short-lived marker only while players are nearby.
-
-Natural wild echoes are registered as a worldgen feature and injected into overworld biomes through a NeoForge biome modifier generated by datagen. They write compact `EchoRecord` data into the generated chunk attachment without placing blocks or entities. Unlike player-activity echoes, wild echoes are already mature when created; their client formation progress is immediately `1.0`. Default worldgen rarity is low (`rarity_filter` chance `128`) and can be adjusted by overriding the generated placed feature JSON in a datapack. The configured feature also exposes chest-link behavior through `surfaceSearchAttempts`, `chestSearchRadius`, and `chestLinkedChance`.
-
-Chunk-entry handling uses `EntityEvent.EnteringSection` and only runs its heavier logic when a server player actually crosses into a new chunk. The handler scans a small loaded-chunk neighborhood around the new chunk, never forces new chunks to load, and can backfill deterministic wild echoes in old chunks that predate the worldgen feature. Wild generation can link to nearby chests/barrels, placing a reaching crouched-style echo in front of the container with a random treasure-like prop silhouette.
-
-### 7. Collection
-
-Collection turns a mature record into an inventory/resource state instead of instantly summoning it.
-
-Collection should:
-
-- validate progress server-side
-- remove or mark the world record in the chunk attachment
-- call `markUnsaved()` after attachment mutation
-- grant an echo token, capability-like attachment, or item component to the player
-- preserve affinity and gear snapshot data
-
-### 8. Summoning
-
-Summoning chooses echo type from affinity.
+推荐产出字段：
 
 ```text
-if playerEcho > 0.60:
-    summon Player Echo
-elif wildEcho > 0.60:
-    summon Wild Echo
-else:
-    summon Hybrid Echo
+mode: ITEM | PLAYER_RESOURCE | BOTH
+soulItemId: Identifier
+amountPerUse: int
+quality: COMMON | RARE | TEACON
+interactionCooldownTicks: int
+playFeedback: boolean
 ```
 
-Player Echo:
+规则：
 
-- uses stored gear snapshot
-- selects the strongest usable weapon
-- follows the summoner
+- 默认每次产出 `1` 个灵魂。
+- 冷却只防止连续点击刷屏，不限制总产量。
+- 背包满时应有明确处理：掉落到方块前方或提示失败，不能静默吞掉。
+- 成功后播放青蓝魂雾、短音效和可选 Echo 预览。
 
-Wild Echo:
+## 假人式 Echo 实体
 
-- rolls equipment from biome or local context
-- may be neutral or hostile
+Teacon 需要注册真正的 Echo 实体表面，但第一版不走完整 `ServerPlayer` 假人路线。实体是会移动、受伤、死亡和交互的个体；它不以静态 pose 作为行为模型。
 
-Hybrid Echo:
+推荐路线：
 
-- mixes stored and random traits
-- can become unstable in later versions
+- 注册 `EntityType<EchoEntity>`。
+- `EchoEntity` 持有从 `SoulWorkBlueprint` 解析出的运行时配置。
+- 实体从蓝图应用 Attribute profile/overrides、装备、行为配置、显示名和皮肤 descriptor。
+- 客户端用 player-like 模型渲染青蓝半透明 Echo。
 
-Summoned echoes should live for `30-60` seconds and never drop copied equipment.
+职责拆分：
 
-### 9. Performance Rules
+- `EchoEntity`：服务端实体状态、生命、死亡、交互和收回。
+- `EchoProfile`：身份、离线信息、皮肤来源。
+- `EchoAppearance`：模型、透明度、颜色和粒子。
+- `EchoLoadout`：装备与 prop plan。
+- `EchoAttributeResolver`：profile + sparse overrides 的解析、物化和缺失 Attribute 兼容。
+- `EchoActionState`：移动、攻击、格挡、使用物品和 addon 动作等运行时状态。
+- `EchoAnimationState`：客户端从动作状态推导出的动画状态，不进蓝图长期存档。
+- `EchoSkinResolver`：客户端皮肤解析。
+- `EchoEntityRenderer`：渲染入口。
 
-- No global ticking echo manager.
-- No permanent hidden entities for dormant records.
-- Chunk-local data lives on chunk attachments.
-- All scans are chunk-local or small-radius.
-- Formation progress is calculated lazily.
-- Density suppression prevents echo spam.
-- `SavedData` is reserved for coarse per-level coordination, not every chunk payload.
+持久化边界：
+
+- Bell 或方块只保存 blueprint id、profile/skin descriptor、activeLoadout 模板、attribute profile/overrides 和少量运行时状态。
+- 被召回的 Echo 只额外保存剩余血量、关键冷却和必要 action state，不保存完整路径、目标缓存、AI 黑板或 renderer 状态。
+- 需要重建的内容在放出时重新解析：Attribute instance、装备 modifier、皮肤缓存、动画状态和 item-use planner。
+
+生命周期规则：
+
+- Echo 有真实血量，最大生命值来自解析后的 Attribute profile + overrides。
+- Echo 被杀死就直接死亡，不能收回到铃铛，也不掉落模板装备或物品库物品。
+- Echo 未死亡时可以被收回到 Echo Bell；收回应保存剩余血量、冷却和必要的运行时状态。
+- 再次放出时可以延续这些运行时状态，或由 Bell 明确执行重置，具体在实现计划中固定。
+
+## Echo AI 与物品使用
+
+Echo 的 AI 必须可定义、可扩展，不能把特定物品类别和模组道具都写死在 `EchoEntity` 里。核心只认识“能否匹配到物品、当前上下文是否允许使用、使用动作由谁处理”。
+
+推荐拆分：
+
+- `EchoInventoryView`：只读查看召唤者背包、主副手和可选 Curios 槽。
+- `EchoItemLibrary`：蓝图配置的固定物品库。
+- `EchoItemMatcher`：判断召唤者是否携带物品库中的匹配物。
+- `EchoUseAction`：可注册的物品使用动作。
+- `EchoUseContext`：包含 Echo、召唤者、目标、手、世界、只读属性视图和冷却信息。
+- `EchoUsePlanner`：按 AI 状态选择下一次物品使用。
+
+物品动作抽象：
+
+- `EchoCombatLoadoutView` 暴露当前主副手模板、装备模板和远程/近战模式切换状态。
+- `EchoHeldItemAccess` 提供只读或受控写入的 `ItemStack` 视图，避免 Echo 直接拥有可提取库存。
+- `EchoItemUseTraits` 描述物品能力：近战、远程、盾牌、防御性、优先级和是否允许 fallback。
+- `EchoUsePredicate` 根据 Echo、物品、手和目标判断物品能否成为当前动作来源。
+- `EchoUseActionRegistry` 按 priority 查询 action；找不到匹配项时只回退到安全的 vanilla right-click 或空手逻辑。
+- `EchoOneShotUseAction` 处理一次性触发道具，声明 range、cooldown、消耗和副作用。
+- `EchoChanneledUseAction` 处理需要拉弓、蓄力、持续施法或持续使用的道具，声明 holdTime、tickUsing、trigger 和是否允许期间近战。
+- `EchoProjectilePlan` 负责弹药选择、无限弹药判定、弹道估算、发射位置、初速、重力、散布和多发角度。
+- `EchoUsePlanner` 负责目标距离、冷却、优先级、是否可近战、主副手切换和失败回退；`EchoEntity` 不把这些规则写死在 tick 里。
+
+物品库规则：
+
+- `itemLibrary` 表示 Echo 允许尝试使用的固定物品库；旧的 `loadoutPresets` 命名只作为迁移别名。
+- Echo 每次使用前都必须通过 `EchoItemMatcher` 在召唤者背包中找到匹配物。
+- 找不到匹配物时，Echo 只能显示蓝色道具影子或回退到空手逻辑，不能凭空生成物品效果。
+- 匹配物默认不消耗召唤者物品；需要消耗的动作必须由具体 `EchoUseAction` 明确声明并在服务端执行。
+
+食物规则：
+
+- 第一版建议食物直接恢复 Echo 血量，而不是引入玩家饥饿值。
+- 原因是 Echo 不是完整玩家，饥饿值会引入饱食度、消耗、自然回血和 UI 状态，复杂度超过 Teacon 需要。
+- 食物使用有独立冷却，例如 `foodCooldownTicks`。
+- 未来如果某类 Echo 需要饥饿、魔力或其他资源，把它做成 `EchoResourceModel` 插件，不放进基础 Echo。
+
+右键物品规则：
+
+- 非食物道具走 `EchoUseAction`，默认语义尽量接近玩家右键。
+- 使用时按需读取“召唤者当时状态”：关键 Attribute 视图、队伍/阵营、权限上下文、朝向、目标和 addon 暴露的资源接口。不要把这些内容长期保存进蓝图。
+- 对复杂模组物品，例如铁魔法类施法道具，核心只提供通用 use context；具体兼容由 addon 或 adapter 注册 `EchoUseAction`。
+- 无适配器的未知物品不强行调用危险逻辑，只显示道具影子或执行安全 fallback。
+
+## Shader 兼容验证
+
+Sodium 和 Iris 作为普通 dependencies 加入本地开发环境：compile-only 让后续 compat 代码可以引用必要 API，runtime-only 让 `runClient` 能加载实际模组验证 Echo 半透明剪影、tooltip 预览、beam/fx pipeline 和 shader pack 下的渲染行为。
+
+边界：
+
+- 不在核心逻辑中直接依赖 Sodium/Iris；compat 代码应放到独立 adapter 或隔离包里。
+- 兼容修复先通过渲染状态、RenderType、buffer ownership 和资源 reload 边界完成。
+- 只有当必须接入特定 renderer hook 时，才在 compat adapter 中引用 Sodium/Iris API。
+
+## 静态剪影与动态实体渲染
+
+当前工程已有 `EchoPoseRenderers`、`EchoPoseRenderContext` 和 `EchoPropRenderPlan`。这些概念只适合静态剪影：tooltip、SoulWork 预览、未激活残影、宝箱前蹲下伸手这类不会真的行动的视觉。会移动、会攻击、会吃东西、会右键物品的 Echo 实体不应从蓝图读取静态 pose。
+
+目标：
+
+- tooltip、SoulWork 预览和静态残影共用 pose 逻辑。
+- 实体 renderer 读取 `EchoActionState` / `EchoAnimationState`，不读取 `previewPose`。
+- tooltip renderer 只负责画布、相机和光照。
+- pose definition 负责模型姿态和 prop 收集。
+- prop renderer 负责物品、盾牌、书本和 addon 注册道具的 Echo 化渲染。
+
+静态预览姿态：
+
+- `IDLE`
+- `WALKING`
+- `CROUCHING`
+- `REACHING`
+- `CROUCH_REACHING`
+- `GUARDING`
+- `READING`
+- `FALLEN`
+
+`CROUCH_REACHING` 保留“宝箱前蹲下伸手”的展示语义，但 Teacon 不通过自然生成把它放到宝箱前。未来如果恢复自然结构联动，它也应先生成静态记录或预览记录，不直接把 live entity 固定成这个姿态。
+
+实体动画边界：
+
+- 实体动画由移动速度、攻击目标、手上动作、受击、使用物品和 AI 状态推导。
+- 实体可以在客户端做插值和动作 blending，但服务器只同步必要动作状态。
+- 不把静态 pose enum 存进实体长期数据。
+- 插件需要新动画时注册 action/animation adapter；插件需要新静态展示时注册 preview pose definition。两者分开维护。
+
+## Echo Bell 与 Tooltip
+
+Echo Bell 应像一个小型魂匣预览。
+
+要求：
+
+- Bell 可保存 `SoulWorkBlueprint` 快照。
+- Bell 可从 `SoulWorkBlockEntity` 导出蓝图。
+- Bell 可把蓝图导入 `SoulWorkBlockEntity`。
+- tooltip 显示 Echo ID、显示名、Attribute 摘要、皮肤模式、成熟状态和静态预览姿态。
+- tooltip 渲染装备与道具影子。
+- 移除 tooltip renderer 中的占位 texture label。
+- 文案使用 `zh_cn.json` 和 `en_us.json` 本地化。
+
+## Curios 集成
+
+Curios 已在 `project.toml` 中开启。Teacon 第一版把 Curios 作为扩展面，而不是核心运行前提。
+
+使用策略：
+
+- SoulWork 蓝图预留 Curios 槽位结构。
+- 真正添加魂器或饰品时，用 Curios datagen 生成 slot、entity assignment 和 item tag。
+- 没有 Curios 玩法内容时，不创建空洞 UI。
+
+可能的后续物品：
+
+- `echo_charm`：增强收魂反馈或数量。
+- `profile_locket`：保存 Echo 身份或皮肤 descriptor。
+- `teacon_relic`：展会调试用的便携入口。
+
+## Datagen 策略
+
+长期维护的数据包和资源包内容必须由 datagen 生成。
+
+Teacon 应生成：
+
+- `SoulWorkBlock` blockstate、block model、item model。
+- Soul item 或 Echo blueprint item model。
+- `zh_cn.json` 和 `en_us.json` 文案。
+- Echo 实体 spawn egg 或展示物品，如果实现。
+- Curios slot/tag 数据，如果实现对应内容。
+
+Teacon 不应生成：
+
+- Wild Echo biome modifier。
+- Wild Echo configured feature。
+- Wild Echo placed feature。
+- 任何自然生成入口数据。
+
+## 实现顺序
+
+1. 建立 Teacon build flags，封印 worldgen、datagen 和 EnteringSection 回填。
+2. 注册 `SoulWorkBlock`、`SoulWorkBlockEntity`、基础模型和语言 datagen。
+3. 实现 `SoulWorkBlueprint`、skin descriptor、activeLoadout、itemLibrary、attribute profile/overrides 和 output rules。
+4. 实现无限收魂交互。
+5. 实现 Bell 与 SoulWorkBlock 的蓝图导入/导出。
+6. 注册 `EchoEntity`，从蓝图应用 Attribute profile、装备、行为配置和成熟状态；实体不读取 `previewPose` 驱动行为。
+7. 实现 Echo AI 的 item library、inventory matcher、use action 和冷却框架，并保留 addon action adapter 入口。
+8. 整理静态 pose/prop registry，复用到 tooltip、SoulWork 预览和静态残影。
+9. 实现 profile、随机皮肤、URL descriptor 和 CustomSkinLoader 兼容路径。
+10. 精修 tooltip、中文文案、展示反馈和 changelog。

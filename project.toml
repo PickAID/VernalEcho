@@ -15,7 +15,7 @@ issue_tracker_url = "https://github.com/PickAID/VernalEcho/issues"
 
 [features]
 jei = false
-curios = false
+curios = true
 # Not available on this branch until compatible 26.1.2 artifacts are published.
 geckolib = false
 player_animator = false
@@ -29,7 +29,7 @@ kotlin = false
 # Local-only helper packs for development runs.
 basic = false
 appleskin = false
-curios = false
+curios = true
 
 [overrides]
 # Only override curated versions when an enabled built-in feature needs a
@@ -54,6 +54,7 @@ cursemaven = "https://cursemaven.com"
 architectury = "https://maven.architectury.dev"
 latvian = "https://maven.latvian.dev/releases"
 jitpack = "https://jitpack.io"
+modrinth = "https://api.modrinth.com/maven"
 
 [dependencies]
 # Use nested tables by Gradle-style bucket name.
@@ -67,6 +68,16 @@ jitpack = "https://jitpack.io"
 # [dependencies.deobf_runtime_only]
 # jei_runtime = "mezz.jei:jei-26.1.2-neoforge:29.5.0.26"
 #
+[dependencies.deobf_compile_only]
+# Client renderer and shader compatibility APIs. Keep runtime entries below
+# so runClient can exercise the compat path with the actual mods loaded.
+sodium_api = "maven.modrinth:sodium:mc26.1.2-0.8.12-beta.2-neoforge"
+iris_api = "maven.modrinth:iris:1.10.9+26.1-neoforge"
+
+[dependencies.deobf_runtime_only]
+sodium_runtime = "maven.modrinth:sodium:mc26.1.2-0.8.12-beta.2-neoforge"
+iris_runtime = "maven.modrinth:iris:1.10.9+26.1-neoforge"
+
 # [dependencies.deobf_implementation]
 # mixinextras_neoforge = "io.github.llamalad7:mixinextras-neoforge:0.5.4"
 #
