@@ -8,6 +8,7 @@
 - Clarify that EchoAnchor is an infinite, permission-editable Echo source that renders through the same projection path as natural Echo records.
 - Add design requirements for a 3D Echo Bell model, Curios right-shoulder Bell rendering, and one-shot nearby Echo notification sound.
 - Clarify maturity rules: natural Echoes are mature at creation, player-activity Echoes mature over time, and EchoAnchor projections are mature by default.
+- Clarify finite source rules: natural and player-activity Echoes are consumed when extracted, while only EchoAnchor remains as an infinite source.
 - Document the Bell collect/release consistency fix: Echo ownership must transfer atomically between source, Bell, and world placement to prevent duplicate A/B-point records after reloads or repeated moves.
 - Reserve `EchoBodyType` / model-key boundaries so future Echoes can represent non-player creatures without forcing player-model data onto every projection.
 - Clarify EchoPattern item boundaries: save equipment templates, avoid full inventory snapshots, and use bounded usable item sets plus inventory predicates for switching behavior.

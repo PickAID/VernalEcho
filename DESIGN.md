@@ -86,7 +86,13 @@ Echo 的世界表现先统一成来源模型，再分自然生成和人工锚点
 ```text
 NaturalEchoSource
 - 来源数据：EchoRecord
-- 生命周期：有限，成熟后可收取并移除
+- 生命周期：有限，成熟后可收取；被提取后立即消耗并从世界来源移除
+- 编辑权限：无
+- 渲染：EchoProjectionRenderer
+
+PlayerActivityEchoSource
+- 来源数据：EchoRecord
+- 生命周期：有限，按时间成熟；被提取后立即消耗并从世界来源移除
 - 编辑权限：无
 - 渲染：EchoProjectionRenderer
 
@@ -104,6 +110,12 @@ Teacon 中，`EchoAnchorSource` 是主要入口；自然生成相关入口仍然
 - `NATURAL` / Wild Echo：创建时即成熟，`formationProgress = 1.0`。
 - `PLAYER_ACTIVITY`：由玩家活动产生，需要按时间成熟。
 - `ANCHOR`：Teacon 锚点投影默认成熟，除非 Pattern 显式配置展示未成熟状态。
+
+有限来源规则：
+
+- `NATURAL` 和 `PLAYER_ACTIVITY` 都是有限来源；一旦被 Bell 提取，世界中的来源必须消耗，不能继续保留投影或再次被同一 source 生成。
+- Bell 放出有限 Echo 时，生成的是新的世界实例，不恢复旧 source 的生产能力。
+- 只有 `ANCHOR` 来源可以在被收取后继续提供新的 Echo 输出。
 
 非玩家 Echo 预留：
 
@@ -454,11 +466,11 @@ Echo Bell 应像一个小型 Echo 投影容器。
 收取/放出一致性：
 
 - Bell 不应只保存 `recordId + pos` 作为长期所有权依据；目标锁定可以临时保存位置，但提交收取时必须验证 `sourceId`、`recordId`、`origin` 和当前位置仍一致。
-- 收取有限 Echo 时，服务端必须在同一次事务中从来源移除 Echo 并写入 Bell；失败时不能只完成一边。
+- 收取有限 Echo 时，服务端必须在同一次事务中从来源移除 Echo 并写入 Bell；成功后原 `NATURAL` / `PLAYER_ACTIVITY` 来源被消耗，失败时不能只完成一边。
 - 放出有限 Echo 时，应生成新的世界实例 id 或明确迁移 owner/source state，不能简单复用旧 record id 在新位置复制一份。
 - 放出后 Bell 清空与 chunk/BE 写入必须同一服务端操作完成；chunk 或 BE 需要 `markUnsaved` 或等价脏标记。
 - 如果游戏强制关闭，重进世界时不能出现“Bell 里有 Echo，世界 A 点又恢复同一个 Echo”的双拥有状态。
-- 对 `NATURAL` 来源，收取后该 record 应进入 consumed 状态或从来源中移除；自然 backfill 不能因为 slot 状态残留或 id 复用再次生成同一个 Echo。
+- 对 `NATURAL` 和 `PLAYER_ACTIVITY` 来源，收取后该 record 应进入 consumed 状态或从来源中移除；自然 backfill 或活动残留不能因为 slot 状态残留或 id 复用再次生成同一个 Echo。
 - 对 `ANCHOR` 来源，收取不删除 Pattern，但 Bell 中保存的是一次产出的 Echo 结果，不获得 Anchor Pattern 的所有权。
 
 ## Curios 集成
